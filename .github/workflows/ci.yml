@@ -1,0 +1,83 @@
+name: CI & Paper Build
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Build & Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up modern C++20 Compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++-12 ninja-build
+          echo "CXX=g++-12" >> $GITHUB_ENV
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=20
+
+      - name: Build C++ Verification Engine
+        run: cmake --build build --config Release
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Pytest Test Suite
+        run: pytest tests/ -v
+
+      - name: Run NIST Juliet Benchmark Suite
+        run: python benchmarks/run_benchmark.py
+
+  paper-verification:
+    name: Verify Paper Compilation & Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Paper PDF Integrity
+        run: |
+          if [ ! -f "paper/paper.pdf" ]; then
+            echo "::error::paper/paper.pdf does not exist!"
+            exit 1
+          fi
+          FILE_SIZE=$(wc -c < "paper/paper.pdf")
+          if [ "$FILE_SIZE" -lt 50000 ]; then
+            echo "::error::paper/paper.pdf is unexpectedly small ($FILE_SIZE bytes)!"
+            exit 1
+          fi
+          echo "Paper PDF validated successfully. Size: $FILE_SIZE bytes."
+
+  release:
+    name: Publish Paper PDF Release Asset
+    needs: [test, paper-verification]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Upload Paper PDF to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: paper/paper.pdf
+          generate_release_notes: true

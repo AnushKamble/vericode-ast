@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  vericode-benchmark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    command: ["python3", "benchmarks/run_benchmark.py"]
