@@ -1,4 +1,4 @@
-\documentclass[sigconf,screen,nonacm]{acmart}
+\documentclass[sigconf,screen,nonacm,pbalance]{acmart}
 
 \usepackage{booktabs}
 \usepackage{amsmath}
@@ -125,42 +125,44 @@ While LLM-generated systems code frequently compiles without diagnostic errors u
 \resizebox{\linewidth}{!}{%
 \begin{tikzpicture}[
     font=\sffamily\footnotesize,
-    box/.style={draw=blue!70!black, thick, rounded corners=3pt, fill=blue!5, align=center, inner sep=5pt, minimum height=0.9cm},
-    llmbox/.style={draw=purple!80!black, thick, rounded corners=3pt, fill=purple!5, align=center, inner sep=5pt, minimum height=0.9cm},
-    enginebox/.style={draw=orange!80!black, thick, rounded corners=3pt, fill=orange!5, align=center, inner sep=5pt, minimum height=0.9cm},
-    decision/.style={diamond, draw=red!70!black, thick, fill=red!5, align=center, aspect=1.8, inner sep=3pt},
-    successbox/.style={draw=green!60!black, thick, rounded corners=3pt, fill=green!8, align=center, inner sep=5pt, minimum height=0.85cm},
+    stdbox/.style={thick, rounded corners=3pt, align=center, inner sep=4pt, text width=3.2cm, minimum height=1.25cm},
+    box/.style={stdbox, draw=blue!70!black, fill=blue!5},
+    llmbox/.style={stdbox, draw=purple!80!black, fill=purple!5},
+    enginebox/.style={stdbox, draw=orange!80!black, fill=orange!5},
+    decision/.style={diamond, draw=red!70!black, thick, fill=red!5, align=center, aspect=2.0, inner sep=3pt, minimum width=2.6cm, minimum height=1.1cm},
+    feedbackbox/.style={stdbox, draw=blue!70!black, fill=blue!5},
+    successbox/.style={stdbox, draw=green!60!black, fill=green!8},
     arr/.style={-{Stealth[scale=1.0]}, thick, draw=gray!80!black},
     feedback/.style={-{Stealth[scale=1.0]}, thick, draw=red!70!black, dashed}
 ]
 
-% Forward pipeline (Row 1)
-\node[box] (spec) at (0, 0) {\textbf{Specification / Intent}\\\scriptsize NL Prompt / Code Draft};
-\node[llmbox] (llm) at (3.5, 0) {\textbf{Local Code LLM}\\\scriptsize Qwen-2.5-Coder / Qwen-3 via Ollama};
-\node[box] (sanitize) at (7.3, 0) {\textbf{Lexical Sanitizer}\\\scriptsize Comment \& Literal Masking};
-\node[enginebox] (astcfg) at (11.3, 0) {\textbf{C++20 AST/CFG Engine}\\\scriptsize Basic Block Extraction ($< 150\,\mu$s)};
-\node[enginebox] (inv) at (15.5, 0) {\textbf{Invariant Evaluators}\\\scriptsize CWE-401 $\cdot$ CWE-362 $\cdot$ CWE-476};
+% Forward pipeline (Row 1: 5 uniformly sized columns at dx = 4.7cm)
+\node[box] (spec) at (0.0, 0) {\textbf{Specification / Intent}\\\scriptsize Natural Language / Code Draft};
+\node[llmbox] (llm) at (4.7, 0) {\textbf{Local Code LLM}\\\scriptsize Qwen-2.5-Coder / Qwen-3};
+\node[box] (sanitize) at (9.4, 0) {\textbf{Lexical Sanitizer}\\\scriptsize Comment \& Literal Masking};
+\node[enginebox] (astcfg) at (14.1, 0) {\textbf{C++20 AST/CFG Engine}\\\scriptsize Sub-millisecond CFG Extraction};
+\node[enginebox] (inv) at (18.8, 0) {\textbf{Invariant Evaluators}\\\scriptsize CWE-401 $\cdot$ CWE-362 $\cdot$ CWE-476};
 
-% Decision and verification outputs (Row 2)
-\node[decision] (check) at (15.5, -2.2) {\textbf{Violations?}};
-\node[successbox] (clean) at (15.5, -3.7) {\textbf{Verified Secure Output}\\\scriptsize Modern C++20 Safe Artifact (100\% Clean)};
+% Decision and verification outputs (Row 2 & 3: aligned under Invariant Evaluators at x = 18.8)
+\node[decision] (check) at (18.8, -2.3) {\textbf{Violations?}};
+\node[successbox] (clean) at (18.8, -4.1) {\textbf{Verified Secure Output}\\\scriptsize Modern C++20 Safe Artifact};
 
-% Neuro-symbolic repair feedback loop
-\node[box] (diag) at (9.3, -2.2) {\textbf{Diagnostic Bridge}\\\scriptsize Structured JSON Coordinates \& Invariant Breach};
-\node[box] (prompt) at (3.5, -2.2) {\textbf{Targeted Prompt Synthesizer}\\\scriptsize Constraint-Satisfaction Instruction Generation};
+% Neuro-symbolic repair feedback loop (Row 2: equidistant 7.05cm spacing from check to diag to prompt)
+\node[feedbackbox] (diag) at (11.75, -2.3) {\textbf{Diagnostic Bridge}\\\scriptsize Structured Invariant Coordinates};
+\node[feedbackbox] (prompt) at (4.7, -2.3) {\textbf{Targeted Prompt Synthesizer}\\\scriptsize Constraint Remediation Engine};
 
 % Forward Connections
 \draw[arr] (spec) -- (llm);
-\draw[arr] (llm) -- node[above]{\scriptsize Candidate C++} (sanitize);
+\draw[arr] (llm) -- node[above, align=center]{\scriptsize Candidate\\[-2pt]\scriptsize C++} (sanitize);
 \draw[arr] (sanitize) -- (astcfg);
-\draw[arr] (astcfg) -- node[above]{\scriptsize Attributed CFG} (inv);
+\draw[arr] (astcfg) -- node[above, align=center]{\scriptsize Attributed\\[-2pt]\scriptsize CFG} (inv);
 \draw[arr] (inv) -- (check);
-\draw[arr] (check) -- node[right]{\textbf{No (Clean)}} (clean);
+\draw[arr] (check) -- node[right]{\scriptsize \textbf{No (Clean)}} (clean);
 
 % Feedback Loop Connections
-\draw[feedback] (check) -- node[above]{\textbf{Yes (Buggy)}} (diag);
+\draw[feedback] (check) -- node[above]{\scriptsize \textbf{Yes (Buggy)}} (diag);
 \draw[feedback] (diag) -- node[above]{\scriptsize JSON Schema} (prompt);
-\draw[feedback] (prompt) -- node[left]{\scriptsize Remediation Prompt} (llm);
+\draw[feedback] (prompt) -- node[left, align=center]{\scriptsize Remediation\\[-2pt]\scriptsize Prompt} (llm);
 
 \end{tikzpicture}%
 }
@@ -352,13 +354,18 @@ VeriCode-AST provides three flexible interfaces for researcher and developer ado
 
 \noindent\textbf{Neural Code Repair.} Recent studies have explored using LLMs for Automated Program Repair (APR)~\cite{xia2023keep, bouzenia2024repairing}. However, pure conversational prompting struggles with low-level systems invariants~\cite{pearce2022asleep}. Systems like ChatRepair incorporate compiler outputs, but compiler text is noisy. VeriCode-AST introduces neuro-symbolic coupling, providing formal AST invariants as actionable constraints.
 
+\enlargethispage{1\baselineskip}
 \section{Conclusion}
 \label{sec:conclusion}
 
 In this paper, we introduced \textbf{VeriCode-AST}, an open-source neuro-symbolic framework coupling sub-millisecond C++20 AST and CFG static verification with code-generation LLMs. By anchoring language models with deterministic dominance invariants, VeriCode-AST eliminates memory leaks (CWE-401), data races (CWE-362), and null dereferences (CWE-476). Across 157 NIST Juliet benchmark cases, VeriCode-AST achieves 100.0\% precision, 100.0\% recall, and 100.0\% self-repair convergence in 1.1 turns, maintaining an average verification latency of 213.6~$\mu$s. VeriCode-AST is available open-source with an interactive web workbench.
 
 \bibliographystyle{ACM-Reference-Format}
+\renewcommand{\bibfont}{\footnotesize}
 \begin{thebibliography}{18}
+\footnotesize
+\setlength{\itemsep}{2pt plus 0.5pt}
+\setlength{\parsep}{0pt}
 
 \bibitem{bouzenia2024repairing}
 Islem Bouzenia, Premkumar Devanbu, and Michael Pradel. 2024.
@@ -373,7 +380,7 @@ Cristian Cadar, Daniel Dunbar, and Dawson Engler. 2008.
 \bibitem{calcagno2015moving}
 Cristiano Calcagno, Dino Distefano, J{\'e}r{\^o}me Lebeau, et~al. 2015.
 \newblock Moving fast with software verification.
-\newblock In {\em NASA Formal Methods Symposium}, pages 3--11. Springer.
+\newblock In {\em NASA Formal Methods Symposium}, pages 3--11.~Springer.
 
 \bibitem{chen2021codex}
 Mark Chen, Jerry Tworek, Heewoo Jun, et~al. 2021.
