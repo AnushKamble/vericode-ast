@@ -1,6 +1,7 @@
 # VeriCode-AST: Neuro-Symbolic AST-Guided Verification and Self-Repair for Code LLMs
 
 [![CI & Paper Build](https://github.com/AnushKamble/vericode-ast/actions/workflows/ci.yml/badge.svg)](https://github.com/AnushKamble/vericode-ast/actions/workflows/ci.yml)
+[![Pages Deployment](https://github.com/AnushKamble/vericode-ast/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/AnushKamble/vericode-ast/actions/workflows/deploy-pages.yml)
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-20-blue.svg)]()
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
@@ -8,11 +9,12 @@
 
 <div align="center">
 
-### 📄 Research Paper & Artifact Downloads
+### ⚡ Interactive Visual Workbench & Paper Artifacts
+[![Live Interactive Workbench](https://img.shields.io/badge/⚡%20Live%20Workbench-GitHub%20Pages-brightgreen?style=for-the-badge&logo=github)](https://anushkamble.github.io/vericode-ast/)
 [![Download Paper PDF](https://img.shields.io/badge/📄%20Paper%20PDF-Download%20Preprint-red?style=for-the-badge&logo=adobeacrobatreader)](https://github.com/AnushKamble/vericode-ast/releases/latest/download/paper.pdf)
 [![Direct PDF Mirror](https://img.shields.io/badge/Direct%20Mirror-paper.pdf-blue?style=for-the-badge&logo=github)](./paper/paper.pdf)
 
-*(1-click download link: [Download Compiled Paper PDF](https://github.com/AnushKamble/vericode-ast/releases/latest/download/paper.pdf) | [Local Repository PDF](./paper/paper.pdf))*
+*(1-click links: [⚡ Live Interactive Workbench](https://anushkamble.github.io/vericode-ast/) | [Download Compiled Paper PDF](https://github.com/AnushKamble/vericode-ast/releases/latest/download/paper.pdf) | [Local Repository PDF](./paper/paper.pdf))*
 
 </div>
 
@@ -134,7 +136,9 @@ ninja
 ```
 
 ### Step 5: Interactive Web Demo
-Open `web/index.html` in any web browser to explore interactive AST inspections, sample injections, and real-time repair diffs.
+Access the live interactive workbench directly at: **[https://anushkamble.github.io/vericode-ast/](https://anushkamble.github.io/vericode-ast/)**
+
+Or open `web/index.html` locally in any web browser to explore interactive AST inspections, sample injections, and real-time repair diffs.
 
 ---
 
