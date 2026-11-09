@@ -67,10 +67,10 @@
 
     <div class="toolbar">
         <span style="font-size: 0.82rem; color: var(--text-secondary);">Benchmark Invariants:</span>
-        <button class="btn-sample active" onclick="loadSample('cwe401')">CWE-401 (Memory Leak)</button>
-        <button class="btn-sample" onclick="loadSample('cwe362')">CWE-362 (Race Condition)</button>
-        <button class="btn-sample" onclick="loadSample('cwe476')">CWE-476 (Null Dereference)</button>
-        <button class="btn-sample" onclick="loadSample('clean')">Zero-Defect RAII Control</button>
+        <button class="btn-sample active" data-key="cwe401" onclick="loadSample('cwe401', this)">CWE-401 (Memory Leak)</button>
+        <button class="btn-sample" data-key="cwe362" onclick="loadSample('cwe362', this)">CWE-362 (Race Condition)</button>
+        <button class="btn-sample" data-key="cwe476" onclick="loadSample('cwe476', this)">CWE-476 (Null Dereference)</button>
+        <button class="btn-sample" data-key="clean" onclick="loadSample('clean', this)">Zero-Defect RAII Control</button>
         
         <div style="margin-left: auto; display: flex; gap: 8px;">
             <button class="btn-analyze" onclick="runAnalysis()">Run AST/CFG Analysis</button>
@@ -133,10 +133,12 @@
             clean: `// Zero-Defect Control Baseline (Modern C++20 RAII)\\n#include <iostream>\\n#include <memory>\\n#include <mutex>\\n#include <thread>\\n\\nint safe_counter = 0;\\nstd::mutex g_mtx;\\n\\nvoid safe_worker() {\\n    std::lock_guard<std::mutex> lock(g_mtx);\\n    safe_counter += 10;\\n}\\n\\nvoid safe_task() {\\n    auto buf = std::make_unique<int[]>(32);\\n    buf[0] = 42;\\n    std::cout << "Safe RAII buffer: " << buf[0] << std::endl;\\n}\\n\\nint main() {\\n    safe_task();\\n    std::thread t(safe_worker);\\n    t.join();\\n    return 0;\\n}`
         };
 
-        function loadSample(key) {
+        function loadSample(key, btn) {
             document.querySelectorAll('.btn-sample').forEach(b => b.classList.remove('active'));
-            event.target.classList.add('active');
+            const target = btn || (typeof event !== 'undefined' && event ? (event.currentTarget || event.target) : null) || document.querySelector(`.btn-sample[data-key="${key}"]`);
+            if (target) target.classList.add('active');
             document.getElementById('codeEditor').value = samples[key].replace(/\\n/g, '\n');
+            document.getElementById('hudTurns').innerText = '0 / 3';
             updateLineCounter();
             runAnalysis();
         }
@@ -222,7 +224,8 @@
                     hint: 'Guard mutations with std::lock_guard<std::mutex> lock(mtx) or convert shared state to std::atomic<T>.'
                 });
             }
-            if (code.includes('->') && !code.includes('nullptr') && !code.includes('if (!') && !code.includes('== NULL')) {
+            const hasNullGuard = /(if\s*\(\s*(!\w+|\w+\s*(!=|=)=\s*(nullptr|NULL))\s*\)|std::unique_ptr|std::shared_ptr)/.test(code) || code.includes('ptr != nullptr') || code.includes('!ptr') || code.includes('ptr != NULL');
+            if (code.includes('->') && !hasNullGuard) {
                 diags.push({
                     id: 'CWE-476',
                     name: 'Unchecked Pointer Dereference',
@@ -271,16 +274,29 @@
             let code = document.getElementById('codeEditor').value;
 
             if (code.includes('malloc(')) {
-                code = '#include <memory>\n' + code.replace(/int\*\s*buffer\s*=\s*\(int\*\)malloc\([^;]+\);/, 'auto buffer = std::make_unique<int[]>(32);');
+                if (!code.includes('#include <memory>')) {
+                    code = '#include <memory>\n' + code;
+                }
+                code = code.replace(/int\*\s*buffer\s*=\s*\(int\*\)malloc\([^;]+\);/, 'auto buffer = std::make_unique<int[]>(32);');
+                code = code.replace(/\/\/ Defect: missing free\(buffer\) before normal exit/, '// Repaired: RAII unique_ptr guarantees automatic deallocation');
+                code = code.replace(/\/\/ Defect: early exit leak of buffer/, '// Repaired: RAII safely cleans up on early exit');
             }
             if (code.includes('new int[')) {
-                code = '#include <memory>\n' + code.replace(/int\*\s*data\s*=\s*new\s+int\[\d+\];/, 'auto data = std::make_unique<int[]>(100);');
+                if (!code.includes('#include <memory>')) {
+                    code = '#include <memory>\n' + code;
+                }
+                code = code.replace(/int\*\s*data\s*=\s*new\s+int\[\d+\];/, 'auto data = std::make_unique<int[]>(100);');
             }
             if (code.includes('std::thread') && !code.includes('std::mutex')) {
-                code = '#include <mutex>\nstd::mutex g_mtx;\n' + code.replace(/counter\+\+;/, '{\n        std::lock_guard<std::mutex> lock(g_mtx);\n        counter++;\n    }');
+                if (!code.includes('#include <mutex>')) {
+                    code = '#include <mutex>\nstd::mutex g_mtx;\n' + code;
+                }
+                code = code.replace(/counter\+\+;/, '{\n        std::lock_guard<std::mutex> lock(g_mtx);\n        counter++;\n    }');
+                code = code.replace(/\/\/ Defect: unsynchronized concurrent shared mutation/, '// Repaired: synchronized via std::lock_guard invariant');
             }
-            if (code.includes('ptr->id =') && !code.includes('nullptr')) {
-                code = code.replace(/ptr->id\s*=\s*\d+;/, 'if (ptr != nullptr) {\n        ptr->id = 100;\n    }');
+            if (code.includes('ptr->id =') && !code.includes('ptr != nullptr')) {
+                code = code.replace(/ptr->id\s*=\s*(\d+);/, 'if (ptr != nullptr) {\n        ptr->id = $1;\n    }');
+                code = code.replace(/\/\/ Defect: member dereference without antecedent null-check guard/, '// Repaired: defensive antecedent null guard verifies pointer non-null');
             }
 
             document.getElementById('codeEditor').value = code;
