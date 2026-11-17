@@ -41,12 +41,13 @@ VerificationResult VerifierEngine::verify_source(const std::string& source_code,
     }
     result.total_lines_analyzed = lines;
 
-    // Build AST
+    // Build AST and construct ControlFlowGraph from AST nodes
     auto ast_root = ASTBuilder::parse_source(source_code);
+    auto cfg = std::make_shared<ControlFlowGraph>(ControlFlowGraph::build_from_ast(ast_root, source_code));
 
-    // Execute registered rules
+    // Execute registered rules passing AST root and CFG
     for (const auto& rule : rules_) {
-        auto rule_diagnostics = rule->analyze(ast_root, source_code);
+        auto rule_diagnostics = rule->analyze(ast_root, cfg, source_code);
         if (!rule_diagnostics.empty()) {
             result.passed = false;
             result.diagnostics.insert(result.diagnostics.end(), rule_diagnostics.begin(), rule_diagnostics.end());

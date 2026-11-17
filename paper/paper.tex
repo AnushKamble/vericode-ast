@@ -38,7 +38,9 @@
     showtabs=false,
     tabsize=2,
     frame=single,
-    rulecolor=\color{codegray!30}
+    rulecolor=\color{codegray!30},
+    aboveskip=3pt,
+    belowskip=3pt
 }
 \lstset{style=cppstyle}
 
@@ -179,18 +181,12 @@ Consider the C++ code snippet in Listing~\ref{lst:buggy_example}, representative
 \begin{lstlisting}[language=C++, caption={Vulnerable C++ code synthesized by a baseline LLM.}, label={lst:buggy_example}]
 void processUserData(int* data, int size) {
     int* buffer = new int[size]; // CWE-401: Raw allocation
-    if (data == nullptr) {
-        return; // LEAK: buffer is not deallocated here!
-    }
-    // CWE-476: Member dereference without checking data bounds
-    int base_val = *data; 
-    
-    // Concurrent thread spawning
+    if (!data) return;           // LEAK: buffer is not deallocated here!
+    int base_val = *data;        // CWE-476: Member dereference without guard
     std::vector<std::thread> workers;
     for (int i = 0; i < 4; ++i) {
         workers.emplace_back([&]() {
-            // CWE-362: Unsynchronized write to shared global state
-            global_counter += base_val; 
+            global_counter += base_val; // CWE-362: Unsynchronized write
         });
     }
     for (auto& t : workers) t.join();
@@ -198,24 +194,16 @@ void processUserData(int* data, int size) {
 }
 \end{lstlisting}
 
-\noindent\textbf{The Failure of Conversational Prompting.} When a developer flags this function in a generic chat interface with: \textit{``Fix the memory leak and concurrency issues,''} the model typically modifies only the terminal \texttt{delete[]}, or wraps the raw pointer in an ad-hoc \texttt{free()} call inside the \texttt{if} block. However, conversational models frequently introduce a double-free on non-exceptional paths or leave \texttt{global\_counter} unprotected because the prompt provided no structural dominator context.
+\noindent\textbf{The Failure of Conversational Prompting.} When developers prompt with generic requests like \textit{``Fix the memory leak and concurrency issues,''} models modify only the terminal \texttt{delete[]}, or insert an ad-hoc \texttt{free()} inside the \texttt{if} block. However, conversational models frequently introduce double-free bugs or leave \texttt{global\_counter} unprotected without structural dominator context.
 
-\noindent\textbf{The VeriCode-AST Resolution.} VeriCode-AST constructs the Attributed CFG of Listing~\ref{lst:buggy_example} in 108~$\mu$s. Dominance analysis immediately exposes:
-\begin{enumerate}
-    \item The allocation at line 2 has an exit path (line 4) that bypasses the deallocation basic block at line 18 (violating CWE-401).
-    \item The thread lambda at line 14 executes write operations to \texttt{global\_counter} without an antecedent \texttt{Lock} basic block dominating the write (violating CWE-362).
-\end{enumerate}
-VeriCode-AST synthesizes the formal diagnostic prompt in Listing~\ref{lst:diag_prompt}.
+\noindent\textbf{The VeriCode-AST Resolution.} VeriCode-AST constructs the Attributed CFG of Listing~\ref{lst:buggy_example} in 108~$\mu$s. Dominance analysis immediately exposes: (1) The allocation at line 2 has an exit path (line 3) bypassing the deallocation block at line 12 (violating CWE-401); (2) The thread lambda at line 8 mutates \texttt{global\_counter} without an antecedent \texttt{Lock} block dominating the write (violating CWE-362). VeriCode-AST synthesizes the formal diagnostic prompt in Listing~\ref{lst:diag_prompt}.
 
 \begin{lstlisting}[language={}, caption={Structured diagnostic synthesized by VeriCode-AST.}, label={lst:diag_prompt}]
 {
-  "rule_id": "CWE-401_MEMORY_LEAK",
-  "line": 2, "variable": "buffer",
-  "invariant_violated": "RAII_LIFECYCLE_INVARIANT",
-  "remediation": "Replace raw 'new int[]' with 'std::unique_ptr<int[]> buffer = std::make_unique<int[]>(size)' or ensure deterministic deallocation on all CFG exit paths.",
-  "secondary_rule": "CWE-362_RACE_CONDITION",
-  "thread_line": 14, "target": "global_counter",
-  "remediation_concurrency": "Enclose mutation in 'std::lock_guard<std::mutex> lock(mtx)'."
+  "rule_id": "CWE-401_MEMORY_LEAK", "line": 2, "variable": "buffer",
+  "invariant": "RAII_LIFECYCLE", "remediation": "Use std::make_unique<int[]>(size).",
+  "secondary_rule": "CWE-362_RACE_CONDITION", "thread_line": 8, "target": "global_counter",
+  "remediation_concurrency": "Enclose mutation in std::lock_guard<std::mutex>."
 }
 \end{lstlisting}
 
@@ -303,13 +291,7 @@ The Python orchestrator manages the closed-loop convergence harness:
 \label{sec:evaluation}
 
 \subsection{Benchmark Dataset}
-To rigorously evaluate VeriCode-AST, we synthesized a standardized benchmark suite of \textbf{157 instances} derived from the \textbf{NIST Juliet Test Suite for C/C++ v1.3}~\cite{juliet}. The dataset comprises \textbf{124 vulnerability instances} across three core vulnerability categories and \textbf{33 verified clean controls}:
-\begin{itemize}
-    \item \textbf{CWE-401 (Memory Leaks)}: 43 benchmark instances (42 vulnerable cases with raw heap allocations bypassing exit paths + 1 clean RAII baseline).
-    \item \textbf{CWE-362 (Race Conditions)}: 42 benchmark instances (41 vulnerable multi-threaded data races + 1 clean synchronized mutex baseline).
-    \item \textbf{CWE-476 (Null Dereferences)}: 42 benchmark instances (41 vulnerable unchecked pointer dereferences + 1 clean asserted guard baseline).
-    \item \textbf{Clean Control Baselines}: 30 standalone clean control units featuring idiomatic C++20 constructs (smart pointers, RAII locks, explicit branch checks) to rigorously evaluate false alarm resistance.
-\end{itemize}
+To rigorously evaluate VeriCode-AST, we synthesized a standardized benchmark suite of \textbf{157 instances} derived from the \textbf{NIST Juliet Test Suite for C/C++ v1.3}~\cite{juliet}. The dataset comprises \textbf{124 defect instances} across three core categories and \textbf{33 verified clean controls}: \textbf{CWE-401} (43 instances: 42 vulnerable raw allocations, 1 RAII baseline), \textbf{CWE-362} (42 instances: 41 multi-threaded races, 1 mutex baseline), \textbf{CWE-476} (42 instances: 41 unchecked dereferences, 1 guard baseline), and \textbf{Clean Controls} (30 standalone units featuring idiomatic C++20 smart pointers, RAII locks, and explicit branch checks to rigorously evaluate false alarm resistance).
 
 \input{results_table.tex}
 
@@ -318,25 +300,14 @@ Table~\ref{tab:empirical_results} summarizes the performance of VeriCode-AST acr
 
 \noindent\textbf{Detection Accuracy (100\% Precision \& Recall).} VeriCode-AST detected all 124 vulnerable instances ($TP = 124, FN = 0$) and reported zero false alarms on the clean control baselines ($TN = 33, FP = 0$). This yields \textbf{100.0\% precision}, \textbf{100.0\% recall}, and \textbf{100.0\% specificity}. This absolute accuracy stems directly from formal CFG dominance validation: because the engine checks topological invariants rather than relying on probabilistic pattern matching, it cannot be fooled by variable renaming or benign code formatting.
 
-\noindent\textbf{Responsive Static Analysis Latency.} Across all 157 instances, the static analysis engine achieved an empirical mean verification latency of \textbf{711.9~$\mu$s} (0.71\,ms) per file:
-\begin{itemize}
-    \item \textbf{P50 (Median Latency)}: 692.0~$\mu$s (0.69\,ms)
-    \item \textbf{P95 Latency}: 770.6~$\mu$s (0.77\,ms)
-    \item \textbf{P99 Latency}: 1124.6~$\mu$s (1.12\,ms)
-\end{itemize}
-Compared to formal symbolic execution engines like KLEE, which typically require $5$ to $60$ seconds per function, VeriCode-AST is orders of magnitude faster, making it uniquely suited for real-time developer feedback and automated repair loops.
+\noindent\textbf{Responsive Static Analysis Latency.} Across all 157 instances, the static analysis engine achieved an empirical mean verification latency of \textbf{711.9~$\mu$s} (0.71\,ms) per file (P50: 692.0~$\mu$s, P95: 770.6~$\mu$s, P99: 1124.6~$\mu$s). Compared to formal symbolic execution engines like KLEE, which typically require $5$ to $60$ seconds per function, VeriCode-AST is orders of magnitude faster, making it uniquely suited for real-time developer feedback and automated repair loops.
 
 \noindent\textbf{100\% Self-Repair Convergence.} In the closed-loop repair evaluation, all 124 vulnerability instances were repaired to verified clean status within an average of \textbf{1.1 turns}. Specifically, $91.1\%$ of vulnerabilities converged in Turn 1, and the remaining $8.9\%$ converged in Turn 2. Zero instances required a third iteration or diverged. The structured JSON remediation contracts prevent the model from hallucinating irrelevant edits, focusing generation strictly on invariant satisfaction.
 
 \section{Tool Demonstration \& Developer Workflow}
 \label{sec:demo}
 
-VeriCode-AST provides three flexible interfaces for researcher and developer adoption:
-\begin{enumerate}
-    \item \textbf{Interactive Web Workbench (\texttt{web/index.html})}: A standalone single-page application featuring an in-browser code editor, real-time SVG Control Flow Graph rendering, dominator tree visualization, and side-by-side patch diffing.
-    \item \textbf{Command-Line Interface (CLI)}: A lightweight binary supporting zero-configuration analysis of single translation units or entire directories, emitting either human-readable ANSI reports or structured machine-parsable JSON.
-    \item \textbf{Containerized CI/CD Integration}: A Dockerized GitHub Actions workflow that executes invariant checks during pull-request submission, failing builds that introduce un-dominated resource handles.
-\end{enumerate}
+VeriCode-AST provides three flexible interfaces for researcher and developer adoption: (1)~\textbf{Interactive Web Workbench}: A standalone single-page application (\nolinkurl{web/index.html}) featuring an in-browser code editor, real-time SVG Control Flow Graph rendering, dominator tree visualization, and side-by-side patch diffing; (2)~\textbf{Command-Line Interface (CLI)}: A lightweight binary supporting zero-configuration analysis of single translation units or entire directories, emitting either human-readable ANSI reports or structured machine-parsable JSON; (3)~\textbf{Containerized CI/CD}: A Dockerized GitHub Actions workflow executing invariant checks during pull requests.
 
 \section{Threats to Validity}
 \label{sec:threats}
@@ -357,8 +328,9 @@ VeriCode-AST provides three flexible interfaces for researcher and developer ado
 \section{Conclusion}
 \label{sec:conclusion}
 
-In this paper, we introduced \textbf{VeriCode-AST}, an open-source neuro-symbolic framework coupling high-speed C++20 AST and CFG static verification with code-generation LLMs. By anchoring language models with deterministic dominance invariants, VeriCode-AST eliminates memory leaks (CWE-401), data races (CWE-362), and null dereferences (CWE-476). Across 157 NIST Juliet benchmark cases, VeriCode-AST achieves 100.0\% precision, 100.0\% recall, and 100.0\% self-repair convergence in 1.1 turns, maintaining an average verification latency of 711.9~$\mu$s (0.71~ms). VeriCode-AST is available open-source with an interactive web workbench.
+In this paper, we introduced \textbf{VeriCode-AST}, an open-source neuro-symbolic framework coupling high-speed C++20 AST and CFG static verification with code-generation LLMs. By anchoring language models with deterministic dominance invariants, VeriCode-AST eliminates memory leaks (CWE-401), data races (CWE-362), and null dereferences (CWE-476). Across 157 NIST Juliet benchmark cases, VeriCode-AST achieves 100.0\% precision, 100.0\% recall, and 100.0\% self-repair convergence in 1.1 turns, maintaining sub-millisecond verification latency. VeriCode-AST is available open-source with an interactive web workbench.
 
+\clearpage
 \bibliographystyle{ACM-Reference-Format}
 \renewcommand{\bibfont}{\footnotesize}
 \begin{thebibliography}{18}

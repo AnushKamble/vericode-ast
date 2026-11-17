@@ -11,6 +11,24 @@ void ASTNode::add_child(std::shared_ptr<ASTNode> child) {
     }
 }
 
+static void collect_descendants_helper(const std::shared_ptr<ASTNode>& node, ASTNodeType t, std::vector<std::shared_ptr<ASTNode>>& out) {
+    if (!node) return;
+    if (node->type == t) {
+        out.push_back(node);
+    }
+    for (const auto& child : node->children) {
+        collect_descendants_helper(child, t, out);
+    }
+}
+
+std::vector<std::shared_ptr<ASTNode>> ASTNode::find_descendants(ASTNodeType t) const {
+    std::vector<std::shared_ptr<ASTNode>> out;
+    for (const auto& child : children) {
+        collect_descendants_helper(child, t, out);
+    }
+    return out;
+}
+
 std::string ASTBuilder::node_type_to_string(ASTNodeType type) {
     switch (type) {
         case ASTNodeType::TRANSLATION_UNIT:     return "translation_unit";
@@ -117,6 +135,49 @@ std::shared_ptr<ASTNode> ASTBuilder::parse_source(const std::string& source_code
             th_node->location_start = {line_num, static_cast<size_t>(thread_match.position(0))};
             th_node->location_end = {line_num, static_cast<size_t>(thread_match.position(0) + thread_match[0].length())};
             active_scope->add_child(th_node);
+        }
+
+        // Check for synchronization variables (mutex, lock_guard)
+        static const std::regex sync_regex(R"((std::mutex|std::lock_guard|std::unique_lock|std::atomic)\s*<?[^>]*>?\s+([a-zA-Z_]\w*))");
+        std::smatch sync_match;
+        if (std::regex_search(clean_line, sync_match, sync_regex)) {
+            auto sync_node = std::make_shared<ASTNode>();
+            sync_node->type = ASTNodeType::VARIABLE_DECLARATION;
+            sync_node->value = sync_match[1].str() + " " + sync_match[2].str();
+            sync_node->location_start = {line_num, static_cast<size_t>(sync_match.position(0))};
+            sync_node->location_end = {line_num, static_cast<size_t>(sync_match.position(0) + sync_match[0].length())};
+            active_scope->add_child(sync_node);
+        }
+
+        // Check for branching statements (if, while, for, return)
+        if (clean_line.find("if (") != std::string::npos || clean_line.find("if(") != std::string::npos) {
+            auto if_node = std::make_shared<ASTNode>();
+            if_node->type = ASTNodeType::IF_STATEMENT;
+            if_node->value = clean_line;
+            if_node->location_start = {line_num, 1};
+            if_node->location_end = {line_num, clean_line.length()};
+            active_scope->add_child(if_node);
+        } else if (clean_line.find("return") != std::string::npos) {
+            auto ret_node = std::make_shared<ASTNode>();
+            ret_node->type = ASTNodeType::RETURN_STATEMENT;
+            ret_node->value = clean_line;
+            ret_node->location_start = {line_num, 1};
+            ret_node->location_end = {line_num, clean_line.length()};
+            active_scope->add_child(ret_node);
+        } else if (clean_line.find("while (") != std::string::npos || clean_line.find("while(") != std::string::npos) {
+            auto while_node = std::make_shared<ASTNode>();
+            while_node->type = ASTNodeType::WHILE_STATEMENT;
+            while_node->value = clean_line;
+            while_node->location_start = {line_num, 1};
+            while_node->location_end = {line_num, clean_line.length()};
+            active_scope->add_child(while_node);
+        } else if (clean_line.find("for (") != std::string::npos || clean_line.find("for(") != std::string::npos) {
+            auto for_node = std::make_shared<ASTNode>();
+            for_node->type = ASTNodeType::FOR_STATEMENT;
+            for_node->value = clean_line;
+            for_node->location_start = {line_num, 1};
+            for_node->location_end = {line_num, clean_line.length()};
+            active_scope->add_child(for_node);
         }
     }
 

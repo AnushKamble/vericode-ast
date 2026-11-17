@@ -16,6 +16,7 @@ public:
     }
 
     std::vector<Diagnostic> analyze(const std::shared_ptr<ASTNode>& root,
+                                   const std::shared_ptr<ControlFlowGraph>& cfg,
                                    const std::string& raw_source) override;
 };
 

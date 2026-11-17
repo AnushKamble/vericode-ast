@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vericode/ast_visitor.hpp"
 #include <string>
 #include <vector>
 #include <memory>
@@ -27,6 +28,7 @@ public:
     void add_edge(size_t from_id, size_t to_id);
     
     const BasicBlock* get_block(size_t id) const;
+    const BasicBlock* get_block_for_line(size_t line) const;
     const std::vector<BasicBlock>& get_blocks() const { return blocks_; }
 
     // Depth-First Path Analysis: verifies whether all paths from entry to exit
@@ -36,8 +38,14 @@ public:
     // Dominance analysis: checks if block 'dominator_id' dominates block 'target_id'
     bool dominates(size_t dominator_id, size_t target_id) const;
 
+    // Post-dominance analysis: checks if block 'post_dominator_id' post-dominates block 'target_id'
+    bool post_dominates(size_t post_dominator_id, size_t target_id) const;
+
     // Factory method to construct CFG from tokenized source lines
     static ControlFlowGraph build_from_source(const std::string& source_code);
+
+    // Factory method to construct CFG from AST nodes and source
+    static ControlFlowGraph build_from_ast(const std::shared_ptr<ASTNode>& ast_root, const std::string& source_code);
 
 private:
     std::vector<BasicBlock> blocks_;

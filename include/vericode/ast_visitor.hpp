@@ -41,6 +41,7 @@ struct ASTNode {
     // Helper utilities
     bool is_type(ASTNodeType t) const { return type == t; }
     void add_child(std::shared_ptr<ASTNode> child);
+    std::vector<std::shared_ptr<ASTNode>> find_descendants(ASTNodeType t) const;
 };
 
 // Lightweight AST parser & builder interface
