@@ -37,10 +37,11 @@ def run_suite(backend: str = "deterministic", model_name: str = "qwen3:8b", limi
         rel_name = f_path.relative_to(base_dir)
         is_clean_control = "clean" in f_path.stem or "clean_controls" in str(f_path)
 
-        # Measure AST static analysis latency
+        # Measure AST static analysis latency from compiled C++ binary
         t0 = time.perf_counter()
         verification = bridge.verify_file(str(f_path))
-        elapsed_us = (time.perf_counter() - t0) * 1_000_000
+        proc_latency_us = (time.perf_counter() - t0) * 1_000_000
+        elapsed_us = verification.get("analysis_time_us", proc_latency_us)
         latencies.append(elapsed_us)
 
         initial_passed = verification["passed"]

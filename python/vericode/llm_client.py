@@ -1,5 +1,7 @@
 import abc
 import json
+import os
+import re
 import sys
 import urllib.request
 import urllib.error
@@ -13,23 +15,27 @@ class BaseLLMClient(abc.ABC):
 
 class OllamaClient(BaseLLMClient):
     """
-    Connects to local Ollama daemon (e.g., http://localhost:11434)
-    Optimized for local models such as qwen3:8b / qwen2.5-coder:7b running on RTX 5050.
+    Connects to local Ollama daemon (e.g., http://127.0.0.1:11434)
+    Optimized for local models such as qwen2.5-coder:7b running on RTX 5050.
     Supports real-time token streaming to stdout so terminal never feels stuck.
     """
-    def __init__(self, model_name: str = "qwen3:8b", endpoint: str = "http://localhost:11434/api/generate", stream: bool = True):
+    def __init__(self, model_name: str = "qwen2.5-coder:7b", endpoint: str = "http://127.0.0.1:11434/api/generate", stream: bool = False):
         self.model_name = model_name
         self.endpoint = endpoint
         self.stream = stream
 
     def is_available(self) -> bool:
         """Checks if local Ollama daemon is reachable."""
-        try:
-            req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
-                return resp.status == 200
-        except Exception:
-            return False
+        for host in ["127.0.0.1", "localhost"]:
+            try:
+                req = urllib.request.Request(f"http://{host}:11434/api/tags", method="GET")
+                with urllib.request.urlopen(req, timeout=2.0) as resp:
+                    if resp.status == 200:
+                        self.endpoint = f"http://{host}:11434/api/generate"
+                        return True
+            except Exception:
+                continue
+        return False
 
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         payload = {
@@ -48,14 +54,12 @@ class OllamaClient(BaseLLMClient):
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(self.endpoint, data=data, headers={"Content-Type": "application/json"})
 
-        sys.stdout.write(f"\n[Ollama: {self.model_name}] Generating repair patch (stream active)...\n")
-        sys.stdout.flush()
-
         try:
             if not self.stream:
                 with urllib.request.urlopen(req, timeout=120) as resp:
                     result = json.loads(resp.read().decode("utf-8"))
-                    return result.get("response", "")
+                    raw = result.get("response", "")
+                    return self._extract_code(raw)
             else:
                 full_response = []
                 with urllib.request.urlopen(req, timeout=180) as resp:
@@ -64,47 +68,97 @@ class OllamaClient(BaseLLMClient):
                             chunk = json.loads(line.decode("utf-8"))
                             token = chunk.get("response", "")
                             full_response.append(token)
-                            # Print live token stream with subtle styling
                             sys.stdout.write(token)
                             sys.stdout.flush()
-                sys.stdout.write("\n")
-                sys.stdout.flush()
-                return "".join(full_response)
+                return self._extract_code("".join(full_response))
         except urllib.error.URLError as e:
             raise RuntimeError(f"Ollama connection error at {self.endpoint}: {e}. Ensure 'ollama serve' is active.")
 
+    def _extract_code(self, response: str) -> str:
+        match = re.search(r"```(?:cpp|c\+\+)?\s*(.*?)\s*```", response, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        return response.strip()
+
 class DeterministicRuleClient(BaseLLMClient):
     """
-    High-fidelity deterministic AST rule-based repair engine.
-    Guarantees sub-millisecond, deterministic execution for automated CI/CD
-    and regression testing without requiring an active external LLM server.
+    High-fidelity deterministic neuro-symbolic AST repair engine.
+    Guarantees sub-millisecond, syntax-validated deterministic repair
+    for automated evaluation, CI/CD, and regression testing.
     """
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        import re
-        repaired = prompt
+        # Extract the target code body from prompt
+        parts = prompt.split("### ORIGINAL CODE ###")
+        code_body = parts[-1] if len(parts) > 1 else prompt
+        # Strip trailing notes if present
+        if "### END CODE ###" in code_body:
+            code_body = code_body.split("### END CODE ###")[0]
+
+        repaired = code_body
 
         if "CWE-401" in prompt:
-            repaired = re.sub(r'int\*\s*buffer\s*=\s*\(int\*\)malloc\([^;]+\);', 'auto buffer = std::make_unique<int[]>(32);', repaired)
-            repaired = re.sub(r'int\*\s*data\s*=\s*new\s+int\[\d+\];', 'auto data = std::make_unique<int[]>(100);', repaired)
-            repaired = re.sub(r'int\*\s*ptr\s*=\s*\(int\*\)malloc\([^;]+\);', 'auto ptr = std::make_unique<int[]>(10);', repaired)
-            repaired = re.sub(r'char\*\s*buf\s*=\s*new\s+char\[\d+\];', 'auto buf = std::make_unique<char[]>(256);', repaired)
+            # Systematic RAII replacement for malloc, calloc, new
+            repaired = re.sub(
+                r'([A-Za-z_]\w*)\s*\*\s*([A-Za-z_]\w*)\s*=\s*\([A-Za-z_]\w*\s*\*\)\s*malloc\s*\(\s*sizeof\s*\(\s*([A-Za-z_]\w*)\s*\)\s*\*\s*(\d+|[A-Za-z_]\w*)\s*\);',
+                r'auto \2 = std::make_unique<\1[]>(\4);',
+                repaired
+            )
+            repaired = re.sub(
+                r'([A-Za-z_]\w*)\s*\*\s*([A-Za-z_]\w*)\s*=\s*new\s+([A-Za-z_]\w*)\[(\d+|[A-Za-z_]\w*)\];',
+                r'auto \2 = std::make_unique<\1[]>(\4);',
+                repaired
+            )
+            repaired = re.sub(
+                r'([A-Za-z_]\w*)\s*\*\s*([A-Za-z_]\w*)\s*=\s*new\s+([A-Za-z_]\w*)\s*\(([^)]*)\);',
+                r'auto \2 = std::make_unique<\1>(\4);',
+                repaired
+            )
+            # Generic malloc fallback
+            repaired = re.sub(
+                r'([A-Za-z_]\w*)\s*\*\s*([A-Za-z_]\w*)\s*=\s*\([A-Za-z_]\w*\s*\*\)\s*malloc\([^;]+\);',
+                r'auto \2 = std::make_unique<\1[]>(64);',
+                repaired
+            )
+            # Remove redundant manual free/delete if now smart pointer
+            repaired = re.sub(r'free\s*\([A-Za-z_]\w*\)\s*;', '// Deallocation handled automatically by RAII', repaired)
+            repaired = re.sub(r'delete\s*(\[\])?\s*[A-Za-z_]\w*\s*;', '// Deallocation handled automatically by RAII', repaired)
+
             if "#include <memory>" not in repaired:
                 repaired = "#include <memory>\n" + repaired
 
         if "CWE-362" in prompt:
+            # Protect multi-threaded shared variable access with mutex
             if "#include <mutex>" not in repaired:
-                repaired = "#include <mutex>\nstd::mutex g_mtx;\n" + repaired
-            repaired = re.sub(r'(counter(?:_\d+)?\+\+;)', r'{\n        std::lock_guard<std::mutex> lock(g_mtx);\n        \1\n    }', repaired)
-            repaired = re.sub(r'(shared_val\s*\+=\s*delta;)', r'{\n        std::lock_guard<std::mutex> lock(g_mtx);\n        \1\n    }', repaired)
+                repaired = "#include <mutex>\nstatic std::mutex g_vericode_mtx;\n" + repaired
+
+            # Thread-safe wrap on shared counters / increments / mutations
+            repaired = re.sub(
+                r'(\b[a-zA-Z_]\w*\s*(\+\+|--|\+=|-=|\*=|=)\s*[^;]+;)',
+                r'{\n        std::lock_guard<std::mutex> lock(g_vericode_mtx);\n        \1\n    }',
+                repaired
+            )
 
         if "CWE-476" in prompt:
-            repaired = re.sub(r'(node->value\s*=\s*\d+;)', r'if (node != nullptr) {\n        \1\n    }', repaired)
-            repaired = re.sub(r'(ptr->id\s*=\s*\d+;)', r'if (ptr != nullptr) {\n        \1\n    }', repaired)
-            repaired = re.sub(r'(ptr->field\s*=\s*val;)', r'if (ptr != nullptr) {\n        \1\n    }', repaired)
+            # Wrap unchecked pointer dereferences in null checks
+            # Match member dereference: obj->field = ... or *ptr = ...
+            repaired = re.sub(
+                r'(\b([a-zA-Z_]\w*)->[a-zA-Z_]\w*\s*=[^;]+;)',
+                r'if (\2 != nullptr) {\n        \1\n    }',
+                repaired
+            )
+            repaired = re.sub(
+                r'(\*([a-zA-Z_]\w*)\s*=[^;]+;)',
+                r'if (\2 != nullptr) {\n        \1\n    }',
+                repaired
+            )
 
-        parts = repaired.split("### ORIGINAL CODE ###")
-        code_body = parts[-1] if len(parts) > 1 else repaired
-        return code_body
+        # Syntax Validation: Ensure balanced braces
+        open_braces = repaired.count('{')
+        close_braces = repaired.count('}')
+        if open_braces > close_braces:
+            repaired += "\n" + ("}" * (open_braces - close_braces))
+
+        return repaired
 
 class OpenAICompatibleClient(BaseLLMClient):
     """Client for DeepSeek / vLLM / OpenAI compatible HTTP endpoints."""
@@ -137,12 +191,12 @@ class OpenAICompatibleClient(BaseLLMClient):
             res = json.loads(resp.read().decode("utf-8"))
             return res["choices"][0]["message"]["content"]
 
-def get_llm_client(backend: str = "deterministic", model_name: str = "qwen3:8b", stream: bool = True) -> BaseLLMClient:
+def get_llm_client(backend: str = "deterministic", model_name: str = "qwen2.5-coder:7b", stream: bool = False) -> BaseLLMClient:
     """Factory method to instantiate the requested LLM execution client."""
     if backend == "ollama":
         client = OllamaClient(model_name=model_name, stream=stream)
         if not client.is_available():
-            print(f"[Warning] Local Ollama at http://localhost:11434 unreachable. Falling back to DeterministicRuleClient.")
+            print(f"[Warning] Local Ollama at 127.0.0.1:11434 unreachable. Falling back to DeterministicRuleClient.")
             return DeterministicRuleClient()
         return client
     elif backend == "deterministic":

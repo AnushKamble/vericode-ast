@@ -14,7 +14,10 @@ class VerifierBridge:
             self.cli_binary = cli_binary_path
         else:
             # Check default build outputs
+            module_dir = os.path.dirname(os.path.abspath(__file__))
             candidates = [
+                os.path.join(module_dir, "..", "..", "build", "vericode_cli.exe"),
+                os.path.join(module_dir, "..", "..", "build", "vericode_cli"),
                 "./build/vericode_cli",
                 "./build/vericode_cli.exe",
                 "../build/vericode_cli",
@@ -29,16 +32,36 @@ class VerifierBridge:
                 cmd = [self.cli_binary, "--json", file_path]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
                 if res.stdout.strip():
-                    return json.loads(res.stdout)
+                    data = json.loads(res.stdout)
+                    return data
             except Exception as e:
                 pass # Fallback to native Python rule engine
 
         # High-fidelity native Python verification fallback
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             code = f.read()
-        return self.verify_source(code, file_path)
+        return self._verify_source_fallback(code, file_path)
 
     def verify_source(self, source_code: str, identifier: str = "inline_code") -> Dict[str, Any]:
+        if self.cli_binary:
+            import tempfile
+            tmp = None
+            try:
+                with tempfile.NamedTemporaryFile("w", suffix=".cpp", delete=False, encoding="utf-8") as f:
+                    tmp = f.name
+                    f.write(source_code)
+                return self.verify_file(tmp)
+            except Exception:
+                pass
+            finally:
+                if tmp and os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+        return self._verify_source_fallback(source_code, identifier)
+
+    def _verify_source_fallback(self, source_code: str, identifier: str = "inline_code") -> Dict[str, Any]:
         lines = source_code.splitlines()
         diagnostics: List[Dict[str, Any]] = []
 
