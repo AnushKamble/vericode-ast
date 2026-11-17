@@ -3,6 +3,7 @@ import sys
 import time
 import argparse
 from pathlib import Path
+from typing import Optional
 import numpy as np
 
 # Add python path
@@ -12,7 +13,7 @@ from vericode.bridge import VerifierBridge
 from vericode.repair_orchestrator import RepairOrchestrator
 from vericode.llm_client import get_llm_client
 
-def run_suite(backend: str = "deterministic", model_name: str = "qwen3:8b", limit: int = None):
+def run_suite(backend: str = "deterministic", model_name: str = "qwen2.5-coder:7b", limit: Optional[int] = None):
     base_dir = Path(__file__).resolve().parent / "datasets"
     bridge = VerifierBridge()
     orchestrator = RepairOrchestrator(bridge, max_iterations=3)
@@ -94,7 +95,9 @@ def run_suite(backend: str = "deterministic", model_name: str = "qwen3:8b", limi
     }
 
     for r in results:
-        if "cwe_401" in r["file"]:
+        if r["is_clean"]:
+            cat = "Clean Control Baselines"
+        elif "cwe_401" in r["file"]:
             cat = "CWE-401 (Memory Leak)"
         elif "cwe_362" in r["file"]:
             cat = "CWE-362 (Race Condition)"
@@ -179,9 +182,10 @@ def run_suite(backend: str = "deterministic", model_name: str = "qwen3:8b", limi
 
     rows_str = "\n".join(table_rows)
 
-    # Export LaTeX table snippet for paper
+    # Export LaTeX table snippet for paper only when evaluating full suite
     paper_dir = Path(__file__).resolve().parent.parent / "paper"
-    latex_table = f"""% Auto-generated empirical results table for VeriCode-AST
+    if limit is None or limit >= len(test_files):
+        latex_table = f"""% Auto-generated empirical results table for VeriCode-AST
 \\begin{{table}}[t]
 \\centering
 \\caption{{Empirical Invariant Detection and Self-Repair Performance ({len(results)} Benchmark Instances)}}
@@ -199,9 +203,9 @@ def run_suite(backend: str = "deterministic", model_name: str = "qwen3:8b", limi
 }}
 \\end{{table}}
 """
-    with open(paper_dir / "results_table.tex", "w", encoding="utf-8") as f:
-        f.write(latex_table)
-    print(f"Exported LaTeX results table to: {paper_dir / 'results_table.tex'}")
+        with open(paper_dir / "results_table.tex", "w", encoding="utf-8") as f:
+            f.write(latex_table)
+        print(f"Exported LaTeX results table to: {paper_dir / 'results_table.tex'}")
 
     return 0 if (precision >= 98.0 and recall >= 98.0 and repair_rate >= 95.0) else 1
 
@@ -209,7 +213,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VeriCode-AST Empirical Benchmark Evaluator")
     parser.add_argument("--backend", default="deterministic", choices=["deterministic", "ollama"],
                         help="LLM inference backend: 'deterministic' (sub-millisecond rule engine) or 'ollama' (live local daemon)")
-    parser.add_argument("--model", default="qwen3:8b", help="Model name for Ollama backend (default: qwen3:8b)")
+    parser.add_argument("--model", default="qwen2.5-coder:7b", help="Model name for Ollama backend (default: qwen2.5-coder:7b)")
     parser.add_argument("--limit", type=int, default=None, help="Optional limit on number of test cases to run")
     args = parser.parse_args()
 

@@ -33,6 +33,12 @@ std::string ASTBuilder::node_type_to_string(ASTNodeType type) {
 
 // Lightweight AST parser scanning line-by-line semantic tokens
 std::shared_ptr<ASTNode> ASTBuilder::parse_source(const std::string& source_code) {
+    static const std::regex fn_regex(R"((int|void|bool|auto|char|double|float|std::\w+|\w+\*?)\s+([a-zA-Z_]\w*)\s*\([^)]*\)\s*\{?)");
+    static const std::regex call_regex(R"(([a-zA-Z_]\w*)\s*\([^)]*\))");
+    static const std::regex new_regex(R"(\bnew\s+([a-zA-Z_]\w*))");
+    static const std::regex arrow_regex(R"(([a-zA-Z_]\w*)\s*->\s*([a-zA-Z_]\w*))");
+    static const std::regex thread_regex(R"(std::thread\s+([a-zA-Z_]\w*))");
+
     auto root = std::make_shared<ASTNode>();
     root->type = ASTNodeType::TRANSLATION_UNIT;
     root->value = "root";
@@ -52,7 +58,6 @@ std::shared_ptr<ASTNode> ASTBuilder::parse_source(const std::string& source_code
         std::string clean_line = (comment_pos != std::string::npos) ? line.substr(0, comment_pos) : line;
 
         // Check for function definitions
-        std::regex fn_regex(R"((int|void|bool|auto|char|double|float|std::\w+|\w+\*?)\s+([a-zA-Z_]\w*)\s*\([^)]*\)\s*\{?)");
         std::smatch fn_match;
         if (std::regex_search(clean_line, fn_match, fn_regex)) {
             auto fn_node = std::make_shared<ASTNode>();
@@ -67,7 +72,6 @@ std::shared_ptr<ASTNode> ASTBuilder::parse_source(const std::string& source_code
         auto active_scope = current_function ? current_function : root;
 
         // Check for function calls & allocations
-        std::regex call_regex(R"(([a-zA-Z_]\w*)\s*\([^)]*\))");
         auto calls_begin = std::sregex_iterator(clean_line.begin(), clean_line.end(), call_regex);
         auto calls_end = std::sregex_iterator();
         for (std::sregex_iterator i = calls_begin; i != calls_end; ++i) {
@@ -81,7 +85,6 @@ std::shared_ptr<ASTNode> ASTBuilder::parse_source(const std::string& source_code
         }
 
         // Check for 'new' allocations
-        std::regex new_regex(R"(\bnew\s+([a-zA-Z_]\w*))");
         std::smatch new_match;
         if (std::regex_search(clean_line, new_match, new_regex)) {
             auto new_node = std::make_shared<ASTNode>();
@@ -93,7 +96,6 @@ std::shared_ptr<ASTNode> ASTBuilder::parse_source(const std::string& source_code
         }
 
         // Check for member access (pointer dereference ->)
-        std::regex arrow_regex(R"(([a-zA-Z_]\w*)\s*->\s*([a-zA-Z_]\w*))");
         auto arrow_begin = std::sregex_iterator(clean_line.begin(), clean_line.end(), arrow_regex);
         auto arrow_end = std::sregex_iterator();
         for (std::sregex_iterator i = arrow_begin; i != arrow_end; ++i) {
@@ -107,7 +109,6 @@ std::shared_ptr<ASTNode> ASTBuilder::parse_source(const std::string& source_code
         }
 
         // Check for thread invocations / async lambda
-        std::regex thread_regex(R"(std::thread\s+([a-zA-Z_]\w*))");
         std::smatch thread_match;
         if (std::regex_search(clean_line, thread_match, thread_regex)) {
             auto th_node = std::make_shared<ASTNode>();
