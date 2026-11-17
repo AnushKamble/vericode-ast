@@ -24,42 +24,7 @@ std::vector<Diagnostic> CWE362RaceConditionRule::analyze(const std::shared_ptr<A
                     (raw_source.find("std::unique_lock") != std::string::npos) ||
                     (raw_source.find("std::atomic") != std::string::npos);
 
-    // Dominance analysis: check if synchronization primitive block dominates worker dispatch
-    bool sync_dominates = false;
-    if (has_sync && cfg) {
-        std::istringstream stream(raw_source);
-        std::string line;
-        size_t line_num = 0;
-        std::vector<size_t> lock_blocks;
-        std::vector<size_t> thread_blocks;
-
-        while (std::getline(stream, line)) {
-            line_num++;
-            if (line.find("std::lock_guard") != std::string::npos ||
-                line.find("std::mutex") != std::string::npos ||
-                line.find("std::atomic") != std::string::npos) {
-                const auto* blk = cfg->get_block_for_line(line_num);
-                if (blk) lock_blocks.push_back(blk->id);
-            }
-            if (line.find("std::thread") != std::string::npos || line.find("pthread_create") != std::string::npos) {
-                const auto* blk = cfg->get_block_for_line(line_num);
-                if (blk) thread_blocks.push_back(blk->id);
-            }
-        }
-
-        if (!lock_blocks.empty()) {
-            for (size_t t_id : thread_blocks) {
-                for (size_t l_id : lock_blocks) {
-                    if (cfg->dominates(l_id, t_id) || l_id <= t_id) {
-                        sync_dominates = true;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    if (!has_sync || (!sync_dominates && has_threads && (raw_source.find("atomic") == std::string::npos && raw_source.find("mutex") == std::string::npos))) {
+    if (!has_sync) {
         std::istringstream stream(raw_source);
         std::string line;
         size_t line_num = 0;
