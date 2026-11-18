@@ -24,11 +24,10 @@ def run_suite(backend: str = "deterministic", model_name: str = "qwen2.5-coder:7
     print(f" Execution Backend: {backend.upper()} (Model: {model_name})")
     print("================================================================================")
 
-    test_files = sorted(list(base_dir.rglob("*.cpp")))
-    if limit:
-        test_files = test_files[:limit]
+    all_test_files = sorted(list(base_dir.rglob("*.cpp")))
+    test_files = all_test_files[:limit] if limit else all_test_files
 
-    print(f"Discovered {len(test_files)} empirical benchmark instances.\n")
+    print(f"Discovered {len(all_test_files)} empirical benchmark instances (evaluating {len(test_files)}).\n")
 
     results = []
     latencies = []
@@ -184,7 +183,7 @@ def run_suite(backend: str = "deterministic", model_name: str = "qwen2.5-coder:7
 
     # Export LaTeX table snippet for paper only when evaluating full suite
     paper_dir = Path(__file__).resolve().parent.parent / "paper"
-    if limit is None or limit >= len(test_files):
+    if limit is None or limit >= len(all_test_files):
         latex_table = f"""% Auto-generated empirical results table for VeriCode-AST
 \\begin{{table}}[t]
 \\centering
